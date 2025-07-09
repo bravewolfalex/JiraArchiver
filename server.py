@@ -76,23 +76,90 @@ class JiraClient:
         ssl_context.verify_mode = ssl.CERT_NONE
         ssl_context.set_ciphers('DEFAULT@SECLEVEL=1')
         
+        # Additional SSL workarounds for corporate environments
         try:
-            with urllib.request.urlopen(req, context=ssl_context, timeout=30) as response:
-                return json.loads(response.read().decode('utf-8'))
+            ssl_context.minimum_version = ssl.TLSVersion.TLSv1
+            ssl_context.maximum_version = ssl.TLSVersion.TLSv1_2
+        except AttributeError:
+            # Older Python versions
+            pass
+            
+        # Disable SNI (Server Name Indication) which can cause issues
+        ssl_context.hostname_checking_enabled = False
+        
+        try:
+            print(f"Making request to: {url}")
+            print(f"Request headers: {dict(req.headers)}")
+            print(f"Using SSL context: {url.startswith('https')}")
+            
+            if url.startswith('https'):
+                with urllib.request.urlopen(req, context=ssl_context, timeout=30) as response:
+                    print(f"Response status: {response.status}")
+                    return json.loads(response.read().decode('utf-8'))
+            else:
+                # For HTTP requests, don't use SSL context
+                with urllib.request.urlopen(req, timeout=30) as response:
+                    print(f"Response status: {response.status}")
+                    return json.loads(response.read().decode('utf-8'))
         except ssl.SSLError as e:
+            print(f"SSL Error details: {type(e).__name__}: {e}")
             # Try with HTTP if HTTPS fails
             if url.startswith('https://'):
                 http_url = url.replace('https://', 'http://', 1)
                 print(f"SSL Error: {e}. Trying HTTP instead...")
                 return self._make_http_request(http_url)
             else:
-                raise Exception(f"SSL Error: {e}")
+                # Try one more time with even more relaxed SSL settings
+                print("Retrying with legacy SSL settings...")
+                return self._make_legacy_ssl_request(url)
+        except ConnectionResetError as e:
+            print(f"Connection reset error: {e}")
+            if url.startswith('https://'):
+                http_url = url.replace('https://', 'http://', 1)
+                print("Connection reset. Trying HTTP instead...")
+                return self._make_http_request(http_url)
+            else:
+                raise Exception(f"Connection Error: {e}")
         except urllib.error.HTTPError as e:
+            print(f"HTTP Error details: {e.code} - {e.reason}")
+            print(f"Error response headers: {dict(e.headers)}")
+            try:
+                error_body = e.read().decode('utf-8')
+                print(f"Error response body: {error_body}")
+            except Exception as read_error:
+                print(f"Could not read error body: {read_error}")
             raise Exception(f"HTTP Error {e.code}: {e.reason}")
         except urllib.error.URLError as e:
+            print(f"URL Error details: {type(e.reason).__name__}: {e.reason}")
             raise Exception(f"URL Error: {e.reason}")
         except Exception as e:
+            print(f"Unexpected error: {type(e).__name__}: {e}")
             raise Exception(f"Request Error: {e}")
+    
+    def _make_legacy_ssl_request(self, url):
+        """Try with legacy SSL settings as last resort"""
+        req = urllib.request.Request(url)
+        req.add_header('Cookie', self.cookie)
+        req.add_header('Content-Type', 'application/json')
+        req.add_header('User-Agent', 'JiraArchiver/1.0')
+        
+        # Create ultra-permissive SSL context
+        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        ssl_context.set_ciphers('ALL:@SECLEVEL=0')
+        
+        try:
+            with urllib.request.urlopen(req, context=ssl_context, timeout=30) as response:
+                return json.loads(response.read().decode('utf-8'))
+        except Exception as e:
+            # Final fallback - try HTTP
+            if url.startswith('https://'):
+                http_url = url.replace('https://', 'http://', 1)
+                print(f"Legacy SSL failed: {e}. Final fallback to HTTP...")
+                return self._make_http_request(http_url)
+            else:
+                raise Exception(f"All SSL methods failed: {e}")
     
     def _make_http_request(self, url):
         """Fallback HTTP request without SSL"""
@@ -102,11 +169,15 @@ class JiraClient:
         req.add_header('User-Agent', 'JiraArchiver/1.0')
         
         try:
+            print(f"Making HTTP request to: {url}")
             with urllib.request.urlopen(req, timeout=30) as response:
+                print(f"HTTP Response status: {response.status}")
                 return json.loads(response.read().decode('utf-8'))
         except urllib.error.HTTPError as e:
+            print(f"HTTP Error details: {e.code} - {e.reason}")
             raise Exception(f"HTTP Error {e.code}: {e.reason}")
         except urllib.error.URLError as e:
+            print(f"HTTP URL Error: {e.reason}")
             raise Exception(f"URL Error: {e.reason}")
     
     def search_issues(self, jql):
