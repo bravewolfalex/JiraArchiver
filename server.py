@@ -19,9 +19,46 @@ from urllib.parse import urlparse, parse_qs
 
 
 class JiraClient:
-    def __init__(self, base_url, cookie):
+    def __init__(self, base_url, cookie, proxy_url=None, proxy_username=None, proxy_password=None):
         self.base_url = base_url.rstrip('/')
         self.cookie = cookie
+        self.proxy_url = proxy_url
+        self.proxy_username = proxy_username
+        self.proxy_password = proxy_password
+        self._setup_proxy()
+    
+    def _setup_proxy(self):
+        """Setup proxy handler if proxy is configured"""
+        if self.proxy_url:
+            # Parse proxy URL
+            parsed_proxy = urlparse(self.proxy_url)
+            proxy_host = parsed_proxy.hostname
+            proxy_port = parsed_proxy.port or 8080
+            
+            # Create proxy handler
+            proxy_handler = urllib.request.ProxyHandler({
+                'http': f'{proxy_host}:{proxy_port}',
+                'https': f'{proxy_host}:{proxy_port}'
+            })
+            
+            # Create authentication handler if username/password provided
+            if self.proxy_username and self.proxy_password:
+                # Create password manager
+                password_manager = urllib.request.HTTPPasswordMgrWithDefaultRealm()
+                password_manager.add_password(None, self.proxy_url, self.proxy_username, self.proxy_password)
+                
+                # Create auth handler
+                auth_handler = urllib.request.ProxyBasicAuthHandler(password_manager)
+                
+                # Install handlers
+                opener = urllib.request.build_opener(proxy_handler, auth_handler)
+            else:
+                # Install proxy handler only
+                opener = urllib.request.build_opener(proxy_handler)
+            
+            # Install opener globally
+            urllib.request.install_opener(opener)
+            print(f"Proxy configured: {proxy_host}:{proxy_port}")
     
     def _make_request(self, url, params=None):
         """Make HTTP request to Jira API"""
@@ -367,8 +404,13 @@ class JiraArchiverHandler(BaseHTTPRequestHandler):
                 self.send_error(400, "Missing required parameters")
                 return
             
+            # Get proxy settings
+            proxy_url = data.get('proxyUrl')
+            proxy_username = data.get('proxyUsername')
+            proxy_password = data.get('proxyPassword')
+            
             # Initialize Jira client
-            jira_client = JiraClient(jira_url, jira_cookie)
+            jira_client = JiraClient(jira_url, jira_cookie, proxy_url, proxy_username, proxy_password)
             
             # Search for issues
             search_result = jira_client.search_issues(jql)
