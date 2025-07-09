@@ -12,6 +12,7 @@ import urllib.error
 import zipfile
 import io
 import tempfile
+import ssl
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
@@ -31,8 +32,13 @@ class JiraClient:
         req.add_header('Cookie', self.cookie)
         req.add_header('Content-Type', 'application/json')
         
+        # Create SSL context that doesn't verify certificates
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        
         try:
-            with urllib.request.urlopen(req) as response:
+            with urllib.request.urlopen(req, context=ssl_context) as response:
                 return json.loads(response.read().decode('utf-8'))
         except urllib.error.HTTPError as e:
             raise Exception(f"HTTP Error {e.code}: {e.reason}")
