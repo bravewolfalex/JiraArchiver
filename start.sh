@@ -29,8 +29,8 @@ fi
 
 # Install dependencies if node_modules doesn't exist
 if [ ! -d "node_modules" ]; then
-    echo "Installing dependencies..."
-    npm install
+    echo "Installing minimal dependencies..."
+    npm install --production --no-optional
     if [ $? -ne 0 ]; then
         echo "ERROR: Failed to install dependencies"
         exit 1

@@ -1,3 +1,4 @@
 @echo off
-npm run install-and-start
+npm install --production --no-optional
+node server.js
 pause

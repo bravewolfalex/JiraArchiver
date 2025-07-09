@@ -34,8 +34,8 @@ if not exist "package.json" (
 
 REM Install dependencies if node_modules doesn't exist
 if not exist "node_modules" (
-    echo Installing dependencies...
-    npm install
+    echo Installing minimal dependencies...
+    npm install --production --no-optional
     if %errorlevel% neq 0 (
         echo ERROR: Failed to install dependencies
         pause
