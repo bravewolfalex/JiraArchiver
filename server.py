@@ -31,14 +31,41 @@ class JiraClient:
         req = urllib.request.Request(url)
         req.add_header('Cookie', self.cookie)
         req.add_header('Content-Type', 'application/json')
+        req.add_header('User-Agent', 'JiraArchiver/1.0')
         
         # Create SSL context that doesn't verify certificates
         ssl_context = ssl.create_default_context()
         ssl_context.check_hostname = False
         ssl_context.verify_mode = ssl.CERT_NONE
+        ssl_context.set_ciphers('DEFAULT@SECLEVEL=1')
         
         try:
-            with urllib.request.urlopen(req, context=ssl_context) as response:
+            with urllib.request.urlopen(req, context=ssl_context, timeout=30) as response:
+                return json.loads(response.read().decode('utf-8'))
+        except ssl.SSLError as e:
+            # Try with HTTP if HTTPS fails
+            if url.startswith('https://'):
+                http_url = url.replace('https://', 'http://', 1)
+                print(f"SSL Error: {e}. Trying HTTP instead...")
+                return self._make_http_request(http_url)
+            else:
+                raise Exception(f"SSL Error: {e}")
+        except urllib.error.HTTPError as e:
+            raise Exception(f"HTTP Error {e.code}: {e.reason}")
+        except urllib.error.URLError as e:
+            raise Exception(f"URL Error: {e.reason}")
+        except Exception as e:
+            raise Exception(f"Request Error: {e}")
+    
+    def _make_http_request(self, url):
+        """Fallback HTTP request without SSL"""
+        req = urllib.request.Request(url)
+        req.add_header('Cookie', self.cookie)
+        req.add_header('Content-Type', 'application/json')
+        req.add_header('User-Agent', 'JiraArchiver/1.0')
+        
+        try:
+            with urllib.request.urlopen(req, timeout=30) as response:
                 return json.loads(response.read().decode('utf-8'))
         except urllib.error.HTTPError as e:
             raise Exception(f"HTTP Error {e.code}: {e.reason}")
